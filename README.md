@@ -38,7 +38,18 @@ Jednorazowy skan z wynikiem w terminalu:
 python3 skaner.py --once
 ```
 
-## Windows
+## Windows — gotowy plik SkanerSieci.exe (najprościej)
+
+Nie trzeba instalować Pythona. Skopiuj `SkanerSieci.exe` (z folderu `dist`) na komputer z Windowsem, np. do osobnego folderu `C:\SkanerSieci`, i kliknij go dwa razy. Otworzy się okno skanera, a panel sam otworzy się w przeglądarce. Baza `urzadzenia.db` zapisuje się obok pliku .exe.
+
+- **„System Windows ochronił ten komputer”** — plik nie ma płatnego podpisu cyfrowego, więc SmartScreen ostrzega. Kliknij **Więcej informacji → Uruchom mimo to**. Część antywirusów z tego samego powodu bywa podejrzliwa wobec programów z PyInstallera — to fałszywy alarm.
+- **Zapora Windows** zapyta o dostęp: zaznacz **Sieci prywatne → Zezwalaj**, żeby panel otwierał się też z telefonu i innych komputerów.
+- Okno skanera musi zostać otwarte; zamknięcie go zatrzymuje skaner. Autostart: skrót do `SkanerSieci.exe` w folderze `Win+R` → `shell:startup`.
+- Opcje działają jak w wersji z Pythonem, np. skrót z celem `SkanerSieci.exe --port 8081`.
+
+**Nowa wersja .exe:** plik buduje GitHub (prywatne repo `lu0i/siec-ip`) przy każdym wysłaniu zmian — zakładka **Actions → Windows .exe → ostatnie uruchomienie → Artifacts → SkanerSieci**. GitHub trzyma pliki 90 dni; starszy build odtworzysz przyciskiem **Run workflow**. Ręcznie na Windowsie: `pip install pyinstaller` i `pyinstaller --onefile --console --name SkanerSieci skaner.py`.
+
+## Windows — z Pythonem
 
 1. Zainstaluj Pythona z [python.org](https://www.python.org/downloads/windows/) (przy instalacji zaznacz **„Add python.exe to PATH”**) albo ze sklepu Microsoft Store.
 2. Skopiuj folder `siec-ip` na komputer i kliknij dwa razy **`start.bat`** — otworzy się okno skanera i panel w przeglądarce.
