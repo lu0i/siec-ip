@@ -792,6 +792,11 @@ def print_table(db_path):
 
 
 def main():
+    # Windows: gdy wynik idzie do pliku lub logu, polskie litery spoza strony kodowej
+    # zamieniają się w "?", zamiast wywracać program.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
     p = argparse.ArgumentParser(description="Skaner urządzeń w sieci domowej z panelem WWW.")
     p.add_argument("--subnet", help="sieć do skanowania, np. 192.168.1.0/24 (domyślnie wykrywana sama)")
     p.add_argument("--port", type=int, default=8080, help="port panelu WWW (domyślnie 8080)")
