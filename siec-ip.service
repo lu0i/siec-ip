@@ -1,0 +1,15 @@
+# Usługa systemd dla serwera z Linuksem — instrukcja w README.md.
+[Unit]
+Description=Skaner urządzeń w sieci domowej
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/python3 /opt/siec-ip/skaner.py --db /var/lib/siec-ip/urzadzenia.db
+Restart=on-failure
+DynamicUser=yes
+StateDirectory=siec-ip
+AmbientCapabilities=CAP_NET_RAW
+
+[Install]
+WantedBy=multi-user.target

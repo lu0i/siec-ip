@@ -1,0 +1,7 @@
+services:
+  siec-ip:
+    build: .
+    network_mode: host   # kontener musi widzieć sieć domową bezpośrednio (działa na Linuksie)
+    volumes:
+      - ./dane:/data
+    restart: unless-stopped

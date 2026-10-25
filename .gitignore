@@ -1,0 +1,8 @@
+# baza z urządzeniami Twojej sieci — zostaje tylko lokalnie
+*.db
+dane/
+dist/
+build/
+*.spec
+__pycache__/
+.DS_Store

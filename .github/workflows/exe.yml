@@ -1,0 +1,38 @@
+# Buduje SkanerSieci.exe na Windowsie i sprawdza, czy działa.
+# Gotowy plik: zakładka Actions → ostatnie uruchomienie → Artifacts → SkanerSieci.
+name: Windows .exe
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install pyinstaller==6.11.1
+      - run: pyinstaller --onefile --console --name SkanerSieci skaner.py
+
+      - name: Test - jeden skan
+        run: dist\SkanerSieci.exe --once --db test-once.db
+
+      - name: Test - panel WWW
+        shell: pwsh
+        run: |
+          $exe = Start-Process dist\SkanerSieci.exe -ArgumentList "--no-browser", "--port", "8090" -PassThru
+          Start-Sleep -Seconds 8
+          $page = Invoke-WebRequest http://localhost:8090/ -UseBasicParsing
+          if ($page.Content -notmatch "Skanuj teraz") { throw "Panel nie odpowiada" }
+          (Invoke-WebRequest http://localhost:8090/api/devices -UseBasicParsing).Content
+          Stop-Process $exe
+          if (-not (Test-Path dist\urzadzenia.db)) { throw "Baza nie powstała obok .exe" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SkanerSieci
+          path: dist/SkanerSieci.exe
