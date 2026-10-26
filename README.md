@@ -1,175 +1,245 @@
-# Skaner sieci domowej — lista adresów IP urządzeń
+# Skaner sieci domowej
 
-Mała aplikacja, która co kilka minut przeszukuje Twoją sieć domową, **wyłapuje wszystkie urządzenia** (komputery, telefony, telewizor, drukarkę, kamery, IoT) i **zapamiętuje ich adresy IP** w bazie. Przez przeglądarkę widzisz listę: kto jest teraz online, od kiedy urządzenie jest w sieci, jaki miało adres wcześniej. Nowe, nieznane urządzenia są oznaczone etykietą **„nowe”**.
+[![Windows .exe](https://github.com/lu0i/siec-ip/actions/workflows/exe.yml/badge.svg)](https://github.com/lu0i/siec-ip/actions/workflows/exe.yml)
+![Python 3.8+](https://img.shields.io/badge/python-3.8%2B-3776AB?logo=python&logoColor=white)
+![Bez zależności](https://img.shields.io/badge/zale%C5%BCno%C5%9Bci-brak-2ea44f)
+![Linux | macOS | Windows](https://img.shields.io/badge/system-Linux%20%7C%20macOS%20%7C%20Windows-555)
+[![Licencja MIT](https://img.shields.io/badge/licencja-MIT-blue)](LICENSE)
 
-Jeden plik Pythona, **bez instalowania bibliotek**. Działa na Linuksie (serwer, Raspberry Pi), macOS i Windows. Nic nie wychodzi do internetu.
+Lekka aplikacja do inwentaryzacji sieci domowej. Co kilka minut wyszukuje wszystkie urządzenia w sieci lokalnej, zapamiętuje ich adresy IP i MAC, rozpoznaje uruchomione na nich usługi i pokazuje wszystko w przejrzystym panelu w przeglądarce.
 
----
+Odpowiada na pytania w rodzaju: *jaki adres ma drukarka?*, *pod jakim IP jest panel Proxmoxa?*, *co to za nowe urządzenie w moim Wi-Fi?*
 
-## Jak to działa
+> **English summary** — A self-hosted home network inventory tool. It periodically discovers devices on your LAN (ping sweep + ARP), tracks them by MAC address with IP history, detects common services (SSH, web panels, Proxmox, Home Assistant, Plex, printers, …) including web page titles, and serves a searchable web dashboard. Single Python file, standard library only, runs on Linux, macOS and Windows (a standalone `.exe` is provided). The UI and docs are in Polish.
 
-```
-  serwer w domu                          sieć domowa
-  +---------------------+   ping + ARP   +--------------------------+
-  |  skaner.py          | -------------> | router, laptop, telefon, |
-  |  - skan co 5 min    | <------------- | TV, drukarka, kamera ... |
-  |  - baza SQLite      |                +--------------------------+
-  |  - panel WWW :8080  | <---- przeglądarka (dowolny komputer/telefon w domu)
-  +---------------------+
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/panel-dark.png">
+  <img alt="Panel WWW skanera z listą urządzeń, adresami IP i wykrytymi usługami" src="docs/panel-light.png">
+</picture>
 
-1. Skaner wysyła ping do każdego adresu w sieci (np. `192.168.1.1–254`).
-2. Potem czyta tablicę ARP systemu — trafiają tam też urządzenia, które ignorują ping (np. iPhone'y), bo zawsze odpowiadają na zapytanie ARP.
-3. Urządzenie jest rozpoznawane po **adresie MAC**, więc gdy router przydzieli mu inny IP, to nadal ten sam wpis — a zmiana ląduje w historii (kliknij adres IP w panelu).
-4. Na każdym urządzeniu online sprawdza popularne porty, żeby wiedzieć, **jakie usługi** na nim działają (lista niżej). Z paneli WWW odczytuje tytuł strony, np. „Proxmox Virtual Environment” albo „Home Assistant”.
-5. Wszystko zapisuje się w pliku `urzadzenia.db` (SQLite).
+<sub>Zrzut ekranu przedstawia przykładowe, fikcyjne dane.</sub>
 
-## Szybki start (do wypróbowania na Macu)
+## Funkcje
 
-Dwuklik na **`start.command`** — otworzy się panel w przeglądarce. Albo w terminalu:
+- **Wykrywanie urządzeń** — przeszukuje całą podsieć (ping + tablica ARP), więc znajduje także urządzenia, które nie odpowiadają na ping, np. telefony.
+- **Identyfikacja po adresie MAC** — gdy router (DHCP) przydzieli urządzeniu inny adres, to nadal ten sam wpis; poprzednie adresy trafiają do historii.
+- **Rozpoznawanie usług** — sprawdza 28 popularnych portów i odczytuje tytuły paneli WWW („Proxmox Virtual Environment”, „Home Assistant”, „Synology DiskStation”…). Panele otwierają się jednym kliknięciem.
+- **Wyszukiwarka** — po nazwie, adresie IP, MAC, nazwie hosta, usłudze lub numerze portu.
+- **Własne nazwy** — „Telewizor salon” zamiast `f4:f5:d8:01:02:03`.
+- **Nowe urządzenia** — oznaczenie wszystkiego, co pojawiło się w sieci w ciągu ostatniej doby, oraz urządzeń z losowym („prywatnym”) adresem MAC.
+- **Status online/offline**, data pierwszego i ostatniego wykrycia, **eksport do CSV** (gotowy dla Excela).
+- **Zero zależności** — jeden plik Pythona i biblioteka standardowa. Dla Windows gotowy plik `SkanerSieci.exe`.
+- **Prywatność** — działa wyłącznie w sieci lokalnej: bez kont, chmury i telemetrii.
+
+## Szybki start
+
+| Gdzie | Jak |
+|---|---|
+| Windows | Pobierz `SkanerSieci.exe` z [Releases](https://github.com/lu0i/siec-ip/releases/latest) i uruchom dwuklikiem. |
+| Linux / macOS | `python3 skaner.py`, potem otwórz `http://localhost:8080`. |
+| Serwer Linux | [usługa systemd](#serwer-z-linuksem-systemd) — startuje razem z systemem. |
+| Proxmox VE | [skrypt](#proxmox-ve-kontener-lxc), który tworzy osobny kontener LXC. |
+| Docker | `docker compose up -d --build` ([szczegóły](#docker)). |
+
+Panel jest dostępny pod adresem `http://<adres-komputera>:8080` z każdego urządzenia w sieci domowej. Pierwszy skan rusza od razu po uruchomieniu, kolejne co 5 minut.
+
+## Instalacja
+
+### Windows — plik .exe
+
+1. Pobierz `SkanerSieci.exe` z [najnowszego wydania](https://github.com/lu0i/siec-ip/releases/latest) i umieść go w osobnym folderze, np. `C:\SkanerSieci` — obok pliku powstanie baza `urzadzenia.db`.
+2. Uruchom go dwuklikiem. Otworzy się okno skanera, a panel sam otworzy się w przeglądarce.
+3. Plik nie ma płatnego podpisu cyfrowego, więc Windows SmartScreen wyświetli ostrzeżenie: **Więcej informacji → Uruchom mimo to**. Sumę kontrolną SHA-256 znajdziesz w opisie wydania, a sam plik jest budowany publicznie z kodu źródłowego przez [GitHub Actions](.github/workflows/exe.yml).
+4. Gdy Zapora Windows zapyta o dostęp, wybierz **Sieci prywatne → Zezwalaj**, aby panel był dostępny z innych urządzeń w domu.
+
+Okno skanera musi pozostać otwarte. Autostart: skrót do `SkanerSieci.exe` w folderze `shell:startup` (`Win+R`).
+
+### Windows — z Pythonem
+
+Zainstaluj Pythona z [python.org](https://www.python.org/downloads/windows/) (zaznacz *Add python.exe to PATH*), pobierz repozytorium i uruchom `start.bat`.
+
+### macOS / Linux
 
 ```bash
+git clone https://github.com/lu0i/siec-ip.git
+cd siec-ip
 python3 skaner.py
 ```
 
-Jednorazowy skan z wynikiem w terminalu:
+Na macOS możesz też uruchomić `start.command` dwuklikiem w Finderze. Jednorazowy skan z wynikiem w terminalu: `python3 skaner.py --once`.
+
+### Serwer z Linuksem (systemd)
+
+Wystarczy Python 3.8+ (Debian, Ubuntu, Raspberry Pi OS i inne).
 
 ```bash
-python3 skaner.py --once
-```
-
-## Windows — gotowy plik SkanerSieci.exe (najprościej)
-
-Nie trzeba instalować Pythona. Skopiuj `SkanerSieci.exe` (z folderu `dist`) na komputer z Windowsem, np. do osobnego folderu `C:\SkanerSieci`, i kliknij go dwa razy. Otworzy się okno skanera, a panel sam otworzy się w przeglądarce. Baza `urzadzenia.db` zapisuje się obok pliku .exe.
-
-- **„System Windows ochronił ten komputer”** — plik nie ma płatnego podpisu cyfrowego, więc SmartScreen ostrzega. Kliknij **Więcej informacji → Uruchom mimo to**. Część antywirusów z tego samego powodu bywa podejrzliwa wobec programów z PyInstallera — to fałszywy alarm.
-- **Zapora Windows** zapyta o dostęp: zaznacz **Sieci prywatne → Zezwalaj**, żeby panel otwierał się też z telefonu i innych komputerów.
-- Okno skanera musi zostać otwarte; zamknięcie go zatrzymuje skaner. Autostart: skrót do `SkanerSieci.exe` w folderze `Win+R` → `shell:startup`.
-- Opcje działają jak w wersji z Pythonem, np. skrót z celem `SkanerSieci.exe --port 8081`.
-
-**Nowa wersja .exe:** plik buduje GitHub (prywatne repo `lu0i/siec-ip`) przy każdym wysłaniu zmian — zakładka **Actions → Windows .exe → ostatnie uruchomienie → Artifacts → SkanerSieci**. GitHub trzyma pliki 90 dni; starszy build odtworzysz przyciskiem **Run workflow**. Ręcznie na Windowsie: `pip install pyinstaller` i `pyinstaller --onefile --console --name SkanerSieci skaner.py`.
-
-## Windows — z Pythonem
-
-1. Zainstaluj Pythona z [python.org](https://www.python.org/downloads/windows/) (przy instalacji zaznacz **„Add python.exe to PATH”**) albo ze sklepu Microsoft Store.
-2. Skopiuj folder `siec-ip` na komputer i kliknij dwa razy **`start.bat`** — otworzy się okno skanera i panel w przeglądarce.
-3. Przy pierwszym uruchomieniu Zapora Windows zapyta o dostęp dla Pythona: zaznacz **Sieci prywatne** i kliknij **Zezwalaj**. Bez tego panel działa tylko na tym komputerze (`http://localhost:8080`), a inne urządzenia w domu go nie otworzą.
-
-Okno skanera musi zostać otwarte — zamknięcie go zatrzymuje skaner. Żeby startował sam po włączeniu komputera, wrzuć skrót do `start.bat` do folderu Autostart (`Win+R` → `shell:startup`).
-
-## Panel WWW
-
-Adres: `http://<IP-serwera>:8080` — z każdego urządzenia w domu.
-
-- **zielona kropka** — urządzenie odpowiedziało w ostatnim skanie,
-- **Nazwa** — kliknij i wpisz własną (np. „Telewizor salon”), Enter zapisuje,
-- **nowe** — urządzenie pierwszy raz widziane w ciągu ostatnich 24 h,
-- **prywatny MAC** — losowy adres MAC, zwykle telefon/tablet z włączonym „prywatnym adresem Wi-Fi” (taki telefon może po czasie pojawić się jako nowe urządzenie),
-- **Usługi** — co działa na urządzeniu; niebieskie etykiety to panele WWW, kliknięcie otwiera je w nowej karcie,
-- **Eksport CSV** — lista do Excela (otwiera się od razu w kolumnach),
-- **Skanuj teraz** — skan bez czekania na kolejny cykl.
-
-### Szukanie usług
-
-Wyszukiwarka przeszukuje też usługi: wpisz `proxmox`, `home assistant`, `ssh`, `drukarka`, `plex` albo numer portu (`8123`), a zostaną tylko urządzenia, na których to działa.
-
-Sprawdzane porty:
-
-| Port | Usługa | Port | Usługa |
-|---|---|---|---|
-| 21 | FTP | 8000, 8008 | strona WWW |
-| 22 | SSH | 8006 | Proxmox |
-| 53 | DNS (np. Pi-hole, router) | 8009 | Chromecast |
-| 80, 443 | strona WWW (router, NAS, kamera…) | 8080, 8443 | strona WWW |
-| 445 | udostępnianie plików (Windows, NAS) | 8096 | Jellyfin |
-| 554 | kamera (RTSP) | 8123 | Home Assistant |
-| 631 | drukarka (IPP) | 9000, 9443 | strona WWW (np. Portainer) |
-| 1883 | MQTT | 9100 | drukarka |
-| 3000 | strona WWW (np. Grafana) | 32400 | Plex |
-| 3389 | pulpit zdalny Windows | 62078 | iPhone/iPad |
-| 5000, 5001 | strona WWW (np. Synology) | | |
-| 5900 | VNC | | |
-| 7000 | AirPlay | | |
-
-Własny port dopiszesz w słowniku `SERVICES` na początku `skaner.py`.
-
-## Instalacja na Proxmoxie (kontener LXC — zalecane)
-
-Skaner dostaje własny, mały kontener z Debianem (256 MB RAM, 2 GB dysku). Kontener jest podpięty do mostka `vmbr0`, więc widzi całą sieć domową — także sam Proxmox i jego maszyny wirtualne. Na samym hoście Proxmoxa nic się nie instaluje.
-
-**1. Skopiuj folder na Proxmoxa** — w Terminalu na Macu (zamień adres na IP swojego Proxmoxa, zapyta o hasło roota):
-
-```bash
-scp -r ~/Desktop/arkusz/siec-ip root@192.168.1.10:/root/
-```
-
-**2. Uruchom instalator** — w panelu Proxmoxa wybierz węzeł → **Shell** i wpisz:
-
-```bash
-bash /root/siec-ip/proxmox-lxc.sh
-```
-
-Skrypt sam pobierze szablon Debiana, utworzy kontener `siec-ip` (z autostartem razem z Proxmoxem), zainstaluje Pythona, uruchomi usługę i na końcu wypisze adres panelu.
-
-**Aktualizacja:** skopiuj nowy `skaner.py` jak w kroku 1 i uruchom ten sam skrypt jeszcze raz — wykryje istniejący kontener i tylko podmieni skaner. Baza urządzeń zostaje.
-
-**Warianty:**
-
-- stały adres kontenera zamiast DHCP (wygodniej, bo adres panelu się nie zmieni):
-  `IP=192.168.1.50/24 GW=192.168.1.1 bash /root/siec-ip/proxmox-lxc.sh`
-- inny mostek sieciowy lub magazyn: `BRIDGE=vmbr1 STORAGE=local-zfs bash /root/siec-ip/proxmox-lxc.sh`
-
-Logi skanera: `pct exec <numer-kontenera> -- journalctl -u siec-ip -f`
-
-**Ręcznie, bez skryptu:** utwórz w panelu kontener z szablonu Debiana (nieuprzywilejowany, *Nesting* zaznaczone, sieć `vmbr0`), w jego konsoli wpisz `apt install -y python3 iputils-ping iproute2`, a dalej postępuj jak w sekcji poniżej.
-
-## Instalacja na serwerze z Linuksem (usługa systemd)
-
-Wymaga tylko Pythona 3.8+ (jest w każdym Debianie/Ubuntu/Raspberry Pi OS).
-
-```bash
+git clone https://github.com/lu0i/siec-ip.git
 sudo mkdir -p /opt/siec-ip
-sudo cp skaner.py /opt/siec-ip/
-sudo cp siec-ip.service /etc/systemd/system/
+sudo cp siec-ip/skaner.py /opt/siec-ip/
+sudo cp siec-ip/siec-ip.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now siec-ip
 ```
 
-Sprawdzenie i logi:
+Usługa działa na dynamicznym, nieuprzywilejowanym koncie systemowym z jednym dodatkowym uprawnieniem (`CAP_NET_RAW` — potrzebnym do pinga). Baza: `/var/lib/siec-ip/urzadzenia.db`, logi: `journalctl -u siec-ip -f`.
+
+### Proxmox VE (kontener LXC)
+
+Skrypt tworzy mały, nieuprzywilejowany kontener z Debianem (256 MB RAM, 2 GB dysku), podłączony do mostka `vmbr0`, i instaluje w nim skaner jako usługę. Na samym hoście nic się nie instaluje. W powłoce Proxmoxa (węzeł → **Shell**):
 
 ```bash
-systemctl status siec-ip
-journalctl -u siec-ip -f
+cd /root && curl -fsSL https://github.com/lu0i/siec-ip/archive/refs/heads/main.tar.gz | tar xz
+bash /root/siec-ip-main/proxmox-lxc.sh
 ```
 
-Baza leży w `/var/lib/siec-ip/urzadzenia.db`. Usługa startuje sama po restarcie serwera.
+Na końcu skrypt wypisze adres panelu. Ponowne uruchomienie aktualizuje skaner w istniejącym kontenerze — baza zostaje.
 
-## Instalacja przez Docker (alternatywa)
+- stały adres zamiast DHCP: `IP=192.168.1.50/24 GW=192.168.1.1 bash /root/siec-ip-main/proxmox-lxc.sh`
+- inny mostek lub magazyn: `BRIDGE=vmbr1 STORAGE=local-zfs bash /root/siec-ip-main/proxmox-lxc.sh`
 
-Na serwerze z Linuksem, w tym folderze:
+### Docker
+
+Na hoście z Linuksem:
 
 ```bash
 docker compose up -d --build
 ```
 
-Baza zapisuje się w `./dane/urzadzenia.db`. `network_mode: host` jest konieczne — inaczej kontener widzi tylko swoją wewnętrzną sieć, a nie Twoją domową. (Na Docker Desktop dla Maca/Windows to nie zadziała tak samo — tam uruchamiaj skaner bezpośrednio.)
+`network_mode: host` jest wymagane — inaczej kontener widzi tylko własną sieć wirtualną. Baza: `./dane/urzadzenia.db`. Na Docker Desktop (macOS/Windows) tryb host nie daje dostępu do sieci domowej — tam uruchom skaner bezpośrednio.
+
+## Korzystanie z panelu
+
+- **Kropka** — zielona: urządzenie odpowiedziało w ostatnim skanie; szara: offline.
+- **Nazwa** — kliknij i wpisz własną; Enter zapisuje.
+- **Adres IP** — kliknij, aby zobaczyć historię adresów urządzenia.
+- **Usługi** — niebieskie etykiety to panele WWW; kliknięcie otwiera je w nowej karcie.
+- **Filtry** — wszystkie, online, offline, nowe (z ostatnich 24 h).
+- **Wyszukiwarka** — np. `proxmox`, `home assistant`, `ssh`, `drukarka`, `8123`.
+- **Eksport CSV** — plik rozdzielany średnikami, z kodowaniem UTF-8 (otwiera się od razu w kolumnach Excela).
+
+### Wykrywane usługi
+
+| Port | Usługa | Port | Usługa |
+|---|---|---|---|
+| 21 | FTP | 8000, 8008 | strona WWW |
+| 22 | SSH | 8006 | Proxmox VE |
+| 53 | DNS (router, Pi-hole) | 8009 | Chromecast |
+| 80, 443 | strona WWW (router, NAS, kamera…) | 8080, 8443 | strona WWW |
+| 445 | udostępnianie plików (SMB) | 8096 | Jellyfin |
+| 554 | kamera (RTSP) | 8123 | Home Assistant |
+| 631 | drukarka (IPP) | 9000, 9443 | strona WWW (np. Portainer) |
+| 1883 | MQTT | 9100 | drukarka (RAW) |
+| 3000 | strona WWW (np. Grafana) | 32400 | Plex |
+| 3389 | pulpit zdalny (RDP) | 62078 | iPhone / iPad |
+| 5000, 5001 | strona WWW (np. Synology) | 5900 | VNC |
+| 7000 | AirPlay | | |
+
+Listę rozszerzysz w słowniku `SERVICES` na początku `skaner.py`.
 
 ## Opcje
 
 | Opcja | Domyślnie | Opis |
 |---|---|---|
-| `--subnet 192.168.1.0/24` | wykrywana sama | która sieć ma być skanowana |
-| `--interval 300` | 300 s | co ile sekund skanować |
+| `--subnet 192.168.1.0/24` | wykrywana automatycznie | skanowana sieć (automatycznie: sieć aktywnego interfejsu, maks. 4096 adresów) |
+| `--interval 300` | 300 s | odstęp między skanami |
 | `--port 8080` | 8080 | port panelu WWW |
-| `--host 127.0.0.1` | 0.0.0.0 | `127.0.0.1` = panel dostępny tylko z samego serwera |
-| `--db plik.db` | `urzadzenia.db` obok skryptu | gdzie trzymać bazę |
+| `--host 127.0.0.1` | `0.0.0.0` | adres nasłuchu; `127.0.0.1` ogranicza panel do tego komputera |
+| `--allow-host NAZWA` | — | dodatkowa nazwa domenowa panelu (adresy IP i nazwy `.lan`, `.local`, `.home.arpa` działają bez tego) |
+| `--db PLIK` | `urzadzenia.db` obok programu | plik bazy danych |
 | `--once` | — | jeden skan, wynik w terminalu, koniec |
+| `--no-browser` | — | `.exe` nie otwiera przeglądarki po starcie |
 
-## Dobrze wiedzieć
+## Jak to działa
 
-- **Bezpieczeństwo:** panel nie ma hasła — każdy w Twojej sieci domowej może go otworzyć. Do domu to zwykle w porządku; nie wystawiaj portu 8080 do internetu na routerze.
-- **Wyłączone urządzenie** na Linuksie znika z „online” od razu przy następnym skanie; na macOS i Windows może wisieć jako online jeszcze kilka–kilkanaście minut (tyle system trzyma wpisy ARP).
-- **Nazwy hostów** pojawią się tylko, jeśli router je udostępnia przez DNS (wiele routerów to robi, np. `laptop.lan`). Jeśli kolumna jest pusta — nadaj nazwy ręcznie.
-- Skaner widzi tylko sieć, w której jest serwer. Jeśli masz osobną sieć dla gości/IoT, uruchom go z `--subnet` dla tamtej sieci (o ile serwer ma do niej dostęp).
-- Skan sieci `/24` (254 adresy) trwa kilka–kilkanaście sekund (razem ze sprawdzaniem usług), większej `/21` ok. pół minuty.
-- Usługa schowana za zaporą urządzenia (firewall) albo na nietypowym porcie nie pojawi się na liście.
+```mermaid
+flowchart LR
+    subgraph app["skaner.py"]
+        S["Wątek skanera<br/>(co 5 min)"] -->|zapis| DB[("SQLite<br/>urzadzenia.db")]
+        H["Serwer HTTP<br/>panel + JSON API"] -->|odczyt, nazwy| DB
+    end
+    S -->|"ping, ARP"| LAN["Urządzenia<br/>w sieci lokalnej"]
+    S -->|"TCP: 28 portów<br/>HTTP: tytuł strony"| LAN
+    B["Przeglądarka"] -->|":8080"| H
+```
+
+Każdy skan przebiega w czterech krokach:
+
+1. **Odkrywanie** — równoległy ping (128 wątków) do każdego adresu w podsieci. Każda próba wymusza zapytanie ARP, więc po chwili tablica ARP systemu zawiera także urządzenia ignorujące ping.
+2. **Identyfikacja** — z tablicy ARP (`ip neigh` na Linuksie, `arp -a` na macOS i Windows) brane są pary IP–MAC. Na Linuksie uwzględniany jest stan wpisu, dzięki czemu wyłączone urządzenia nie są liczone jako online.
+3. **Usługi i nazwy** — połączenie TCP z każdym portem z listy (limit 0,6 s), odczyt tytułu strony z portów WWW (maks. 64 kB, przekierowania tylko w obrębie tego samego urządzenia) i odwrotne zapytanie DNS o nazwę hosta.
+4. **Zapis** — jedna transakcja SQLite: aktualizacja statusów, historii adresów i listy usług.
+
+### Budowa
+
+Cała aplikacja to jeden plik [`skaner.py`](skaner.py) korzystający wyłącznie z biblioteki standardowej Pythona:
+
+| Warstwa | Implementacja |
+|---|---|
+| Skanowanie | `subprocess` (ping, `ip`/`arp`/`ipconfig`), `socket`, `concurrent.futures`, `urllib` |
+| Dane | `sqlite3` — tabele `devices`, `ip_history`, `services`, `scans` |
+| Serwer | `http.server.ThreadingHTTPServer` + JSON API |
+| Interfejs | jedna strona HTML z CSS i JavaScriptem osadzonymi w pliku — bez frameworków i zewnętrznych zasobów, z trybem jasnym i ciemnym |
+| Dystrybucja | PyInstaller (`.exe`), systemd, LXC, Docker |
+
+JSON API (używane przez panel, przydatne do własnych integracji):
+
+| Metoda | Ścieżka | Działanie |
+|---|---|---|
+| `GET` | `/api/devices` | lista urządzeń z usługami i stan skanera |
+| `GET` | `/api/devices.csv` | eksport CSV |
+| `GET` | `/api/devices/{mac}/history` | historia adresów IP |
+| `POST` | `/api/devices/{mac}` | zmiana nazwy — `{"name": "…"}` |
+| `DELETE` | `/api/devices/{mac}` | usunięcie wpisu |
+| `POST` | `/api/scan` | natychmiastowy skan |
+
+Żądania `POST` wymagają nagłówka `Content-Type: application/json`.
+
+### Struktura repozytorium
+
+```
+siec-ip/
+├── skaner.py                   # cała aplikacja: skaner, baza, API, panel WWW
+├── start.command               # uruchomienie na macOS (dwuklik)
+├── start.bat                   # uruchomienie na Windows z Pythonem (dwuklik)
+├── siec-ip.service             # usługa systemd
+├── proxmox-lxc.sh              # instalator kontenera LXC na Proxmox VE
+├── Dockerfile
+├── docker-compose.yml
+├── docs/                       # zrzuty ekranu (dane przykładowe)
+└── .github/workflows/exe.yml   # budowa i test SkanerSieci.exe na Windows
+```
+
+## Bezpieczeństwo i prywatność
+
+- **Panel nie ma logowania** — jest przeznaczony do zaufanej sieci domowej. Nie przekierowuj jego portu na routerze do internetu; do zdalnego dostępu użyj VPN (np. WireGuard). Opcja `--host 127.0.0.1` ogranicza panel do jednego komputera.
+- Panel odrzuca żądania z obcych domen (ochrona przed *DNS rebinding*), zmiany danych wymagają żądań JSON (ochrona przed CSRF), a odpowiedzi mają nagłówki CSP i `X-Frame-Options`.
+- Aplikacja **nie łączy się z internetem**: brak telemetrii, kont i sprawdzania aktualizacji. Ruch sieciowy obejmuje wyłącznie urządzenia w skanowanej sieci oraz zapytania DNS do serwera skonfigurowanego w systemie (zwykle routera).
+- Baza `urzadzenia.db` to mapa Twojej sieci — traktuj ją jak dane prywatne. Jest wykluczona z repozytorium w `.gitignore`.
+
+Szczegóły, model zagrożeń i zgłaszanie podatności: [SECURITY.md](SECURITY.md).
+
+## Odpowiedzialne użycie
+
+Skaner aktywnie sprawdza urządzenia (ping, połączenia TCP z wybranymi portami, odczyt stron WWW). Używaj go wyłącznie w sieciach, które należą do Ciebie lub którymi administrujesz. Skanowanie cudzych sieci bez zgody może naruszać prawo i regulaminy dostawców.
+
+## Ograniczenia
+
+- Widoczna jest tylko sieć, do której należy komputer ze skanerem; inne podsieci (np. sieć gości) wymagają `--subnet` i trasy do tej sieci.
+- Na macOS i Windows wyłączone urządzenie może jeszcze przez kilka–kilkanaście minut figurować jako online (czas życia wpisów ARP w systemie). Na Linuksie status aktualizuje się przy najbliższym skanie.
+- Telefony z losowym adresem MAC mogą po pewnym czasie pojawić się jako nowe urządzenie.
+- Nazwy hostów pojawiają się tylko wtedy, gdy udostępnia je lokalny DNS (zwykle router).
+- Usługi na niestandardowych portach lub za zaporą urządzenia nie zostaną wykryte.
+- Obsługiwane jest tylko IPv4.
+
+## Budowanie pliku .exe
+
+Plik `SkanerSieci.exe` budowany jest automatycznie przez [GitHub Actions](.github/workflows/exe.yml) na Windows przy każdej zmianie w gałęzi `main`. Po zbudowaniu workflow uruchamia skan i panel, aby sprawdzić, czy program działa. Ręcznie (na Windows):
+
+```bash
+pip install pyinstaller
+pyinstaller --onefile --console --name SkanerSieci skaner.py
+```
+
+## Licencja
+
+[MIT](LICENSE)

@@ -2,7 +2,7 @@
 # Instaluje skaner sieci w nowym kontenerze LXC (Debian) na Proxmoxie.
 # Uruchom w powłoce Proxmoxa jako root (panel WWW: węzeł → Shell, albo SSH):
 #
-#     bash /root/siec-ip/proxmox-lxc.sh
+#     bash /root/siec-ip-main/proxmox-lxc.sh   (po pobraniu repozytorium, zob. README)
 #
 # Ponowne uruchomienie aktualizuje skaner w istniejącym kontenerze "siec-ip".
 # Stały adres zamiast DHCP:  IP=192.168.1.50/24 GW=192.168.1.1 bash proxmox-lxc.sh

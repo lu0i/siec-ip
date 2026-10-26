@@ -36,7 +36,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import unquote, urlparse
+from urllib.parse import unquote, urlparse, urlsplit
 
 SYSTEM = platform.system()
 FROZEN = getattr(sys, "frozen", False)  # uruchomiony jako SkanerSieci.exe (PyInstaller)
@@ -456,17 +456,52 @@ def devices_csv(devices):
     return ("﻿" + buf.getvalue()).encode("utf-8")
 
 
+SECURITY_HEADERS = (
+    ("X-Content-Type-Options", "nosniff"),
+    ("X-Frame-Options", "DENY"),
+    ("Referrer-Policy", "no-referrer"),
+    ("Content-Security-Policy", "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
+                                "frame-ancestors 'none'; base-uri 'none'; form-action 'none'"),
+)
+LOCAL_SUFFIXES = (".local", ".lan", ".home", ".internal", ".home.arpa", ".localdomain")
+
+
+def host_allowed(header, extra=()):
+    """Czy nagłówek Host wskazuje na sieć lokalną: adres IP, nazwa bez kropki albo domena lokalna.
+
+    Odrzucanie innych nazw blokuje atak DNS rebinding — obca strona otwarta w przeglądarce
+    nie odczyta listy urządzeń przez własną domenę podpiętą pod adres panelu.
+    """
+    host = urlsplit("//" + (header or "")).hostname
+    if not host:
+        return False
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        return "." not in host or host.endswith(LOCAL_SUFFIXES) or host in extra
+
+
 class Handler(BaseHTTPRequestHandler):
     scanner = None  # ustawiany w main()
+    allowed_hosts = frozenset()  # dodatkowe nazwy z --allow-host
 
     def log_message(self, *args):
         pass
+
+    def parse_request(self):
+        if not super().parse_request():
+            return False
+        if host_allowed(self.headers.get("Host"), self.allowed_hosts):
+            return True
+        self.send_json({"error": "niedozwolona nazwa hosta — dodaj ją opcją --allow-host"}, 403)
+        return False
 
     def send(self, code, body=b"", content_type="application/json; charset=utf-8", headers=()):
         self.send_response(code)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
-        for k, v in headers:
+        for k, v in SECURITY_HEADERS + tuple(headers):
             self.send_header(k, v)
         self.end_headers()
         self.wfile.write(body)
@@ -546,7 +581,7 @@ PAGE = r"""<!doctype html>
 * { box-sizing:border-box; }
 body { margin:0; background:var(--bg); color:var(--text);
        font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-main { max-width:1150px; margin:0 auto; padding:28px 16px 48px; }
+main { max-width:1560px; margin:0 auto; padding:28px 16px 48px; }
 header { display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end; justify-content:space-between; margin-bottom:18px; }
 h1 { font-size:22px; margin:0 0 4px; letter-spacing:-.01em; }
 .sub { color:var(--muted); }
@@ -806,6 +841,9 @@ def main():
     p.add_argument("--db", default=str(HERE / "urzadzenia.db"), help="plik bazy SQLite")
     p.add_argument("--once", action="store_true", help="wykonaj jeden skan, wypisz wynik i zakończ")
     p.add_argument("--no-browser", action="store_true", help="nie otwieraj panelu w przeglądarce (.exe)")
+    p.add_argument("--allow-host", action="append", default=[], metavar="NAZWA",
+                   help="dodatkowa nazwa, pod którą otwierasz panel (np. skaner.example.com); "
+                        "adresy IP i nazwy lokalne (.lan, .local, .home.arpa…) działają bez tego")
     args = p.parse_args()
 
     init_db(args.db)
@@ -827,6 +865,7 @@ def main():
     scanner = Scanner(args.db, network, args.interval, auto_network=not args.subnet)
     threading.Thread(target=scanner.loop, daemon=True).start()
     Handler.scanner = scanner
+    Handler.allowed_hosts = frozenset(h.lower() for h in args.allow_host)
     shown = local_ip() if args.host == "0.0.0.0" else args.host
     print("Panel: http://%s:%d   (sieć %s, skan co %d s, baza %s)" % (
         shown, args.port, network, args.interval, args.db))
